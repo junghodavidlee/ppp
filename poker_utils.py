@@ -114,7 +114,7 @@ def calculate_exact_equity_multiway(
     board: List[str]
 ) -> Optional[List[float]]:
     """
-    Calculate exact equity for multi-way all-in using eval7.
+    Calculate equity for multi-way all-in using eval7 Monte Carlo simulation.
 
     Args:
         player_hands: List of lists of card strings [['A♥', 'K♥'], ['Q♠', 'Q♦'], ...]
@@ -141,22 +141,55 @@ def calculate_exact_equity_multiway(
         return None
 
     try:
-        equities = eval7.py_hand_vs_range_exact(
-            eval7_hands,
-            eval7_board,
-            iterations=10000
-        )
-        return equities
-    except Exception:
-        try:
-            equities = eval7.py_hand_vs_range_monte_carlo(
-                eval7_hands,
-                eval7_board,
-                iterations=10000
-            )
-            return equities
-        except Exception:
+        # Create deck and remove known cards
+        deck = eval7.Deck()
+        all_known_cards = []
+        for hand in eval7_hands:
+            all_known_cards.extend(hand)
+        all_known_cards.extend(eval7_board)
+
+        for card in all_known_cards:
+            deck.cards.remove(card)
+
+        # Calculate number of cards to deal
+        cards_to_deal = 5 - len(eval7_board)
+        if cards_to_deal < 0:
             return None
+
+        # Run Monte Carlo simulation
+        import random
+        wins = [0] * len(eval7_hands)
+        ties = 0
+        iterations = 10000
+
+        for _ in range(iterations):
+            # Shuffle and deal remaining board cards
+            deck_copy = deck.cards.copy()
+            random.shuffle(deck_copy)
+            remaining_board = deck_copy[:cards_to_deal]
+            final_board = eval7_board + remaining_board
+
+            # Evaluate all hands
+            values = [eval7.evaluate(hand + final_board) for hand in eval7_hands]
+
+            # Find winner(s)
+            max_value = max(values)
+            winners = [i for i, v in enumerate(values) if v == max_value]
+
+            if len(winners) == 1:
+                wins[winners[0]] += 1
+            else:
+                # Split pot
+                ties += 1
+                for w in winners:
+                    wins[w] += 1.0 / len(winners)
+
+        # Calculate equities
+        equities = [w / iterations for w in wins]
+        return equities
+
+    except Exception as e:
+        return None
 
 
 def extract_hand_info(entry: str) -> Dict:
