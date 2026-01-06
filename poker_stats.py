@@ -7,7 +7,7 @@ from poker_utils import get_position, calculate_exact_equity_multiway
 
 
 class PlayerStatistics:
-    """Calculate player statistics from hands and ledger data."""
+    """Calculate comprehensive player statistics from session and hand data."""
 
     def __init__(self, player_mapper):
         """
@@ -18,79 +18,51 @@ class PlayerStatistics:
         """
         self.player_mapper = player_mapper
 
-    def calculate_from_ledger(
-        self,
-        ledger_df: pd.DataFrame,
-        hands: List[Dict]
-    ) -> pd.DataFrame:
+    def calculate_from_sessions(self, ledger_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate player statistics from ledger data.
+        Calculate player statistics from session data (ledger).
 
         Args:
-            ledger_df: DataFrame containing ledger data
-            hands: List of hand dictionaries
+            ledger_df: DataFrame with unified_player and session_date columns
 
         Returns:
-            DataFrame with player statistics
+            DataFrame with player statistics including session win/loss analysis
         """
-        player_stats = defaultdict(lambda: {
-            'hands_played': 0,
-            'hands_won': 0,
-            'total_buy_in': 0,
-            'total_buy_out': 0,
-            'total_stack': 0,
-            'net_profit': 0,
-            'sessions': 0
-        })
+        # Group by player and session date
+        session_grouped = ledger_df.groupby(['unified_player', 'session_date']).agg({
+            'net': 'sum'
+        }).reset_index()
 
-        # Process ledger data
-        for idx, row in ledger_df.iterrows():
-            player_id = row['player_id']
-            player_nickname = row['player_nickname']
+        # Calculate player statistics
+        player_stats_list = []
 
-            # Try to map by ID first
-            if player_id in self.player_mapper.player_id_mapping:
-                unified_player = self.player_mapper.player_id_mapping[player_id]
-            else:
-                player_full = f"{player_nickname} @ {player_id}"
-                unified_player = self.player_mapper.get_unified_name(player_full)
+        for player_name in session_grouped['unified_player'].unique():
+            player_sessions = session_grouped[session_grouped['unified_player'] == player_name]
 
-            buy_in = row['buy_in'] if pd.notna(row['buy_in']) else 0
-            buy_out = row['buy_out'] if pd.notna(row['buy_out']) else 0
-            stack = row['stack'] if pd.notna(row['stack']) else 0
-            net = row['net'] if pd.notna(row['net']) else 0
+            # Session statistics
+            total_sessions = len(player_sessions)
+            winning_sessions = (player_sessions['net'] > 0).sum()
+            losing_sessions = (player_sessions['net'] < 0).sum()
+            session_win_rate = (winning_sessions / total_sessions * 100) if total_sessions > 0 else 0
 
-            player_stats[unified_player]['total_buy_in'] += buy_in
-            player_stats[unified_player]['total_buy_out'] += buy_out
-            player_stats[unified_player]['total_buy_out'] += stack
-            player_stats[unified_player]['total_stack'] += stack
-            player_stats[unified_player]['net_profit'] += net
-            player_stats[unified_player]['sessions'] += 1
+            # Win/loss details
+            biggest_win = player_sessions['net'].max()
+            biggest_loss = player_sessions['net'].min()
+            net_profit = player_sessions['net'].sum()
 
-        # Process hands for win statistics
-        for hand in hands:
-            for player, data in hand['players'].items():
-                unified_player = self.player_mapper.get_unified_name(player)
-                player_stats[unified_player]['hands_played'] += 1
+            player_stats_list.append({
+                'player': player_name,
+                'net_profit': net_profit,
+                'total_sessions': total_sessions,
+                'winning_sessions': winning_sessions,
+                'losing_sessions': losing_sessions,
+                'session_win_rate': session_win_rate,
+                'biggest_win': biggest_win,
+                'biggest_loss': biggest_loss
+            })
 
-                if hand['winner'] == player:
-                    player_stats[unified_player]['hands_won'] += 1
-
-        # Calculate derived metrics
-        for player in player_stats:
-            stats = player_stats[player]
-            stats['win_rate'] = (
-                stats['hands_won'] / stats['hands_played'] * 100
-                if stats['hands_played'] > 0 else 0
-            )
-            stats['roi'] = (
-                stats['net_profit'] / stats['total_buy_in'] * 100
-                if stats['total_buy_in'] > 0 else 0
-            )
-
-        return pd.DataFrame.from_dict(
-            player_stats, orient='index'
-        ).sort_values('net_profit', ascending=False)
+        # Create DataFrame and sort by net profit
+        return pd.DataFrame(player_stats_list).set_index('player').sort_values('net_profit', ascending=False)
 
     def calculate_positional_stats(self, hands: List[Dict]) -> Dict:
         """
@@ -192,9 +164,6 @@ class AllInAnalyzer:
             'heads_up_count': 0
         })
 
-        successful_calcs = 0
-        failed_calcs = 0
-
         for situation in allin_situations:
             hand = situation['hand']
             allin_players = situation['allin_players']
@@ -206,7 +175,6 @@ class AllInAnalyzer:
             equities = calculate_exact_equity_multiway(player_hands, board)
 
             if equities is not None and len(equities) == len(allin_players):
-                successful_calcs += 1
                 is_multiway = len(allin_players) > 2
 
                 for player_data, equity in zip(allin_players, equities):
@@ -234,8 +202,6 @@ class AllInAnalyzer:
                         allin_stats[unified_player]['won'] += 1
                     else:
                         allin_stats[unified_player]['lost'] += 1
-            else:
-                failed_calcs += 1
 
         # Calculate final stats
         for player in allin_stats:
@@ -252,7 +218,6 @@ class AllInAnalyzer:
                 allin_stats, orient='index'
             ).sort_values('ev_diff', ascending=False)
         else:
-            # Return empty DataFrame with correct columns
             df = pd.DataFrame(columns=[
                 'total_allin', 'won', 'lost', 'total_ev', 'total_actual',
                 'ev_diff', 'multiway_count', 'heads_up_count', 'win_rate'

@@ -2,12 +2,12 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import List, Dict
-from poker_utils import extract_hand_info
+from typing import List, Dict, Tuple
+from poker_utils import extract_hand_info, parse_player_string
 
 
 class PokerDataLoader:
-    """Handles loading and preprocessing of poker log data."""
+    """Handles loading and preprocessing of poker log and ledger data."""
 
     def __init__(self, data_dir: str = 'data/log', ledger_dir: str = 'data/ledger'):
         """
@@ -19,53 +19,70 @@ class PokerDataLoader:
         """
         self.data_dir = Path(data_dir)
         self.ledger_dir = Path(ledger_dir)
-        self.raw_data = None
-        self.ledger_data = None
 
     def load_log_data(self) -> pd.DataFrame:
         """
         Load all CSV log files from the data directory.
 
         Returns:
-            DataFrame containing all log entries
-        """
-        csv_files = sorted(self.data_dir.glob('*.csv'))
-        dfs = []
+            DataFrame containing all log entries with source_file column
 
+        Raises:
+            FileNotFoundError: If data directory doesn't exist
+            ValueError: If no CSV files found in directory
+        """
+        if not self.data_dir.exists():
+            raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
+
+        csv_files = sorted(self.data_dir.glob('*.csv'))
+        if not csv_files:
+            raise ValueError(f"No CSV files found in {self.data_dir}")
+
+        dfs = []
         for csv_file in csv_files:
             print(f"Loading {csv_file.name}...")
             df = pd.read_csv(csv_file)
             df['source_file'] = csv_file.name
             dfs.append(df)
 
-        self.raw_data = pd.concat(dfs, ignore_index=True)
-        self.raw_data['at'] = pd.to_datetime(self.raw_data['at'])
-        self.raw_data = self.raw_data.sort_values('order').reset_index(drop=True)
+        raw_data = pd.concat(dfs, ignore_index=True)
+        raw_data['at'] = pd.to_datetime(raw_data['at'])
+        raw_data = raw_data.sort_values('order').reset_index(drop=True)
 
-        print(f"\nTotal entries: {len(self.raw_data):,}")
-        print(f"Date range: {self.raw_data['at'].min()} to {self.raw_data['at'].max()}")
+        print(f"\nTotal entries: {len(raw_data):,}")
+        print(f"Date range: {raw_data['at'].min()} to {raw_data['at'].max()}\n")
 
-        return self.raw_data
+        return raw_data
 
     def load_ledger_data(self) -> pd.DataFrame:
         """
         Load all CSV ledger files from the ledger directory.
 
         Returns:
-            DataFrame containing all ledger entries
-        """
-        ledger_files = sorted(self.ledger_dir.glob('*.csv'))
-        ledger_dfs = []
+            DataFrame containing all ledger entries with source_file column
 
+        Raises:
+            FileNotFoundError: If ledger directory doesn't exist
+            ValueError: If no CSV files found in directory
+        """
+        if not self.ledger_dir.exists():
+            raise FileNotFoundError(f"Ledger directory not found: {self.ledger_dir}")
+
+        ledger_files = sorted(self.ledger_dir.glob('*.csv'))
+        if not ledger_files:
+            raise ValueError(f"No CSV files found in {self.ledger_dir}")
+
+        ledger_dfs = []
         for ledger_file in ledger_files:
             print(f"Loading {ledger_file.name}...")
             df = pd.read_csv(ledger_file)
+            df['source_file'] = ledger_file.name
             ledger_dfs.append(df)
 
-        self.ledger_data = pd.concat(ledger_dfs, ignore_index=True)
-        print(f"Total ledger entries: {len(self.ledger_data):,}\n")
+        ledger_data = pd.concat(ledger_dfs, ignore_index=True)
+        print(f"Total ledger entries: {len(ledger_data):,}\n")
 
-        return self.ledger_data
+        return ledger_data
 
 
 class HandParser:
@@ -142,7 +159,7 @@ class HandParser:
 
 
 class PlayerMapper:
-    """Manages player identity mapping."""
+    """Manages player identity mapping and unified player names."""
 
     def __init__(self, player_id_mapping: Dict[str, str]):
         """
@@ -161,8 +178,6 @@ class PlayerMapper:
         Args:
             all_player_ids: Set of all player identifier strings
         """
-        from poker_utils import parse_player_string
-
         for player_str in all_player_ids:
             player_id, _ = parse_player_string(player_str)
             unified_name = self.player_id_mapping.get(player_id, player_str)
@@ -179,6 +194,44 @@ class PlayerMapper:
             Unified player name
         """
         return self.player_full_to_unified.get(player_str, player_str)
+
+    def map_ledger_data(self, ledger_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add unified_player and session_date columns to ledger data.
+
+        Args:
+            ledger_df: DataFrame containing ledger data
+
+        Returns:
+            DataFrame with unified_player and session_date columns added
+        """
+        ledger_df = ledger_df.copy()
+
+        # Map player IDs to unified names
+        unified_names = []
+        for _, row in ledger_df.iterrows():
+            player_id = row['player_id']
+            player_nickname = row['player_nickname']
+
+            if player_id in self.player_id_mapping:
+                unified_player = self.player_id_mapping[player_id]
+            else:
+                player_full = f"{player_nickname} @ {player_id}"
+                unified_player = self.get_unified_name(player_full)
+
+            unified_names.append(unified_player)
+
+        ledger_df['unified_player'] = unified_names
+
+        # Extract session date from source_file
+        if 'source_file' in ledger_df.columns:
+            ledger_df['session_date'] = ledger_df['source_file'].str.extract(r'(\d+)_ledger\.csv')[0]
+        elif 'session_start_at' in ledger_df.columns:
+            ledger_df['session_date'] = pd.to_datetime(ledger_df['session_start_at']).dt.strftime('%m%d')
+        else:
+            ledger_df['session_date'] = ledger_df.index.astype(str)
+
+        return ledger_df
 
     def get_merged_accounts(self) -> Dict[str, List[str]]:
         """

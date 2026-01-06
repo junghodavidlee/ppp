@@ -1,6 +1,7 @@
-"""Visualization functions for poker analytics."""
+"""Visualization and reporting functions for poker analytics."""
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from typing import Dict
 
@@ -96,29 +97,78 @@ class StatisticsReporter:
     """Generate formatted reports for poker statistics."""
 
     @staticmethod
-    def print_player_rankings(player_stats):
+    def print_player_summary(player_stats: pd.DataFrame):
         """
-        Print player performance rankings.
+        Print comprehensive player performance summary.
 
         Args:
             player_stats: DataFrame with player statistics
         """
         print("=" * 80)
-        print("PLAYER PERFORMANCE RANKINGS (FROM LEDGER DATA)")
+        print("PLAYER PERFORMANCE SUMMARY")
         print("=" * 80)
-        print("Net Profit = Sum of all session 'net' values from ledger")
+        print(f"\n{'Player':<10} {'Net Profit':>12} {'Sessions':>8} {'Wins':>6} "
+              f"{'Losses':>6} {'Win%':>7} {'Biggest Win':>12} {'Biggest Loss':>13}")
+        print("-" * 80)
+
+        for player, row in player_stats.iterrows():
+            print(f"{player:<10} {row['net_profit']:>12,.0f} {int(row['total_sessions']):>8} "
+                  f"{int(row['winning_sessions']):>6} {int(row['losing_sessions']):>6} "
+                  f"{row['session_win_rate']:>6.1f}% {row['biggest_win']:>12,.0f} "
+                  f"{row['biggest_loss']:>13,.0f}")
+
+        best_session_player = player_stats.loc[player_stats['biggest_win'].idxmax()]
+        worst_session_player = player_stats.loc[player_stats['biggest_loss'].idxmin()]
+
+        print(f"\n🏆 Biggest Single Win: {player_stats['biggest_win'].idxmax()} "
+              f"with ${best_session_player['biggest_win']:,.0f}")
+        print(f"💥 Biggest Single Loss: {player_stats['biggest_loss'].idxmin()} "
+              f"with ${worst_session_player['biggest_loss']:,.0f}")
         print("=" * 80)
-        print(player_stats[[
-            'total_buy_in',
-            'total_buy_out',
-            'net_profit',
-            'win_rate',
-            'roi'
-        ]].round(2))
-        print("\n")
 
     @staticmethod
-    def print_allin_analysis(allin_df, total_situations, player_name=None):
+    def print_positional_analysis(positional_stats: Dict, player_name: str):
+        """
+        Print positional analysis for a player.
+
+        Args:
+            positional_stats: Dictionary of positional stats
+            player_name: Name of player to analyze
+        """
+        print("\n🎯 POSITIONAL ANALYSIS")
+        print("=" * 80)
+        print(f"\nPositional Stats for {player_name}:")
+        print("-" * 80)
+
+        if player_name in positional_stats:
+            pos_data = []
+            for position, stats in positional_stats[player_name].items():
+                if stats['hands'] > 0:
+                    win_rate = (stats['won'] / stats['hands'] * 100)
+                    net_profit = stats['won_chips'] - stats['invested']
+
+                    pos_data.append({
+                        'Position': position,
+                        'Hands': stats['hands'],
+                        'Win Rate %': round(win_rate, 1),
+                        'Invested': stats['invested'],
+                        'Won': stats['won_chips'],
+                        'Net': net_profit
+                    })
+
+            pos_df = pd.DataFrame(pos_data).sort_values('Hands', ascending=False)
+            print(pos_df.to_string(index=False))
+
+            print(f"\n💡 POSITIONAL INSIGHTS for {player_name}:")
+            best_position = pos_df.loc[pos_df['Net'].idxmax()]
+            worst_position = pos_df.loc[pos_df['Net'].idxmin()]
+            print(f"   • Most Profitable Position: {best_position['Position']} "
+                  f"(Net: ${best_position['Net']:,.0f})")
+            print(f"   • Least Profitable Position: {worst_position['Position']} "
+                  f"(Net: ${worst_position['Net']:,.0f})")
+
+    @staticmethod
+    def print_allin_analysis(allin_df: pd.DataFrame, total_situations: int, player_name=None):
         """
         Print all-in EV analysis results.
 
@@ -185,68 +235,3 @@ class StatisticsReporter:
         print("   • EV = (Your Equity × Total Pot) - Amount Invested")
         print("   • HU = Heads-up (2 players), MW = Multi-way (3+ players)")
         print("=" * 80)
-
-    @staticmethod
-    def print_positional_analysis(positional_stats, player_name):
-        """
-        Print positional analysis for a player.
-
-        Args:
-            positional_stats: Dictionary of positional stats
-            player_name: Name of player to analyze
-        """
-        print("\n🎯 POSITIONAL ANALYSIS")
-        print("=" * 80)
-        print(f"\nPositional Stats for {player_name}:")
-        print("-" * 80)
-
-        if player_name in positional_stats:
-            pos_data = []
-            for position, stats in positional_stats[player_name].items():
-                if stats['hands'] > 0:
-                    win_rate = (stats['won'] / stats['hands'] * 100)
-                    net_profit = stats['won_chips'] - stats['invested']
-
-                    pos_data.append({
-                        'Position': position,
-                        'Hands': stats['hands'],
-                        'Win Rate %': round(win_rate, 1),
-                        'Invested': stats['invested'],
-                        'Won': stats['won_chips'],
-                        'Net': net_profit
-                    })
-
-            import pandas as pd
-            pos_df = pd.DataFrame(pos_data).sort_values('Hands', ascending=False)
-            print(pos_df.to_string(index=False))
-
-            print(f"\n💡 POSITIONAL INSIGHTS for {player_name}:")
-            best_position = pos_df.loc[pos_df['Net'].idxmax()]
-            worst_position = pos_df.loc[pos_df['Net'].idxmin()]
-            print(f"   • Most Profitable Position: {best_position['Position']} "
-                  f"(Net: ${best_position['Net']:,.0f})")
-            print(f"   • Least Profitable Position: {worst_position['Position']} "
-                  f"(Net: ${worst_position['Net']:,.0f})")
-
-    @staticmethod
-    def print_range_analysis(player_ranges, player_name, top_n=15):
-        """
-        Print hand range analysis for a player.
-
-        Args:
-            player_ranges: Dictionary of player showdown ranges
-            player_name: Name of player to analyze
-            top_n: Number of top hands to display
-        """
-        print("\n🃏 HAND RANGE ANALYSIS")
-        print("=" * 80)
-
-        if player_name in player_ranges:
-            total_showdowns = sum(player_ranges[player_name].values())
-            print(f"Generating range chart for: {player_name}")
-            print(f"Total showdowns: {total_showdowns}")
-        else:
-            print(f"Player '{player_name}' not found or has no showdown data.")
-            print(f"\nAvailable players with showdown data:")
-            for player in sorted(player_ranges.keys()):
-                print(f"   • {player}")

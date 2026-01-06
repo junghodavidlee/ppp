@@ -51,7 +51,7 @@ def card_string_to_eval7(card_str: str) -> Optional[eval7.Card]:
 
     try:
         return eval7.Card(rank_map[rank] + suit_map[suit])
-    except:
+    except Exception:
         return None
 
 
@@ -123,7 +123,7 @@ def calculate_exact_equity_multiway(
             iterations=10000
         )
         return equities
-    except:
+    except Exception:
         try:
             equities = eval7.py_hand_vs_range_monte_carlo(
                 eval7_hands,
@@ -131,7 +131,7 @@ def calculate_exact_equity_multiway(
                 iterations=10000
             )
             return equities
-        except:
+        except Exception:
             return None
 
 
