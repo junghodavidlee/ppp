@@ -92,6 +92,103 @@ class RangeVisualizer:
 
         return freq_matrix
 
+    @staticmethod
+    def plot_hand_profit_heatmap(
+        player_name: str,
+        hand_profits: Dict[str, float],
+        hand_matrix,
+        ranks
+    ):
+        """
+        Create profit/loss heatmap of player's starting hands.
+
+        Args:
+            player_name: Name of the player
+            hand_profits: Dictionary mapping hand notations to profit/loss
+            hand_matrix: 13x13 matrix of hand notations
+            ranks: List of rank symbols
+
+        Returns:
+            Profit matrix
+        """
+        # Create profit matrix
+        profit_matrix = np.zeros((13, 13))
+
+        for i, rank1 in enumerate(ranks):
+            for j, rank2 in enumerate(ranks):
+                hand = hand_matrix[i][j]
+                profit_matrix[i][j] = hand_profits.get(hand, 0)
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(12, 10))
+
+        # Determine color scale limits (symmetric around 0)
+        max_abs_profit = max(abs(profit_matrix.min()), abs(profit_matrix.max()))
+        if max_abs_profit == 0:
+            max_abs_profit = 1  # Avoid division by zero
+
+        # Create diverging colormap (red = losing, white = break-even, green = winning)
+        im = ax.imshow(profit_matrix, cmap='RdYlGn', aspect='auto',
+                      vmin=-max_abs_profit, vmax=max_abs_profit)
+
+        # Set ticks and labels
+        ax.set_xticks(np.arange(13))
+        ax.set_yticks(np.arange(13))
+        ax.set_xticklabels(ranks, fontsize=11, fontweight='bold')
+        ax.set_yticklabels(ranks, fontsize=11, fontweight='bold')
+
+        # Add grid
+        ax.set_xticks(np.arange(13) - 0.5, minor=True)
+        ax.set_yticks(np.arange(13) - 0.5, minor=True)
+        ax.grid(which='minor', color='black', linestyle='-', linewidth=1.5)
+
+        # Add hand labels and profit values
+        for i in range(13):
+            for j in range(13):
+                hand = hand_matrix[i][j]
+                profit = profit_matrix[i][j]
+
+                # Determine text color based on background
+                # Use dark text for values near zero, white text for extreme values
+                normalized_profit = profit / max_abs_profit if max_abs_profit != 0 else 0
+                text_color = 'white' if abs(normalized_profit) > 0.5 else 'black'
+
+                # Add hand notation
+                ax.text(j, i - 0.2, hand, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color=text_color)
+
+                # Add profit/loss if non-zero
+                if profit != 0:
+                    profit_text = f'${profit/1000:.0f}K' if abs(profit) >= 1000 else f'${profit:.0f}'
+                    ax.text(j, i + 0.2, profit_text, ha='center', va='center',
+                           fontsize=7, color=text_color, style='italic')
+
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('Profit/Loss ($)', fontsize=12, fontweight='bold')
+
+        # Title and labels
+        total_profit = sum(hand_profits.values())
+        total_hands = len([p for p in hand_profits.values() if p != 0])
+        ax.set_title(
+            f'Profit/Loss by Starting Hand for {player_name}\n'
+            f'(Total: ${total_profit:,.0f} across {total_hands} hand types)',
+            fontsize=14, fontweight='bold', pad=20
+        )
+
+        # Add annotations
+        ax.text(12.5, -1.5, 'Suited Hands →', fontsize=10, ha='right',
+               style='italic', color='darkgreen')
+        ax.text(-1.5, 12.5, '← Offsuit Hands', fontsize=10, ha='left',
+               style='italic', color='darkblue')
+        ax.text(6, -1.5, 'Pocket Pairs (diagonal)', fontsize=10, ha='center',
+               style='italic', color='darkred')
+
+        plt.tight_layout()
+        plt.show()
+
+        return profit_matrix
+
 
 class StatisticsReporter:
     """Generate formatted reports for poker statistics."""

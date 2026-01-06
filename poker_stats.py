@@ -263,6 +263,43 @@ class RangeAnalyzer:
 
         return player_ranges
 
+    def collect_hand_profits(self, hands: List[Dict]) -> Dict[str, Dict[str, float]]:
+        """
+        Collect profit/loss for each starting hand for each player.
+
+        Args:
+            hands: List of hand dictionaries
+
+        Returns:
+            Dictionary mapping players to their hand profit/loss
+        """
+        from poker_utils import parse_hole_cards
+
+        player_hand_profits = defaultdict(lambda: defaultdict(float))
+
+        for hand in hands:
+            winner = hand.get('winner')
+            pot = hand.get('pot', 0)
+
+            for player, data in hand['players'].items():
+                hole_cards = data.get('hole_cards')
+                invested = data.get('invested', 0)
+
+                if hole_cards:
+                    unified_player = self.player_mapper.get_unified_name(player)
+                    hand_notation = parse_hole_cards(hole_cards)
+
+                    if hand_notation:
+                        # Calculate profit/loss for this hand
+                        if player == winner:
+                            profit = pot - invested
+                        else:
+                            profit = -invested
+
+                        player_hand_profits[unified_player][hand_notation] += profit
+
+        return player_hand_profits
+
     @staticmethod
     def create_hand_matrix():
         """

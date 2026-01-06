@@ -124,6 +124,26 @@ class HandParser:
             elif info['type'] == 'hand_end':
                 if current_hand:
                     current_hand['end_time'] = info['timestamp']
+
+                    # If no dealer was recorded (dead button situation), infer the button
+                    # In dead button hands, the cutoff becomes the effective button
+                    # Find the player who is not SB or BB - they are in the button/cutoff position
+                    if not current_hand.get('dealer'):
+                        sb_player = current_hand.get('small_blind_player')
+                        bb_player = current_hand.get('big_blind_player')
+                        players = list(current_hand['players'].keys())
+
+                        # The button is the player who is neither SB nor BB
+                        for player in players:
+                            if player != sb_player and player != bb_player:
+                                current_hand['dealer'] = player
+                                break
+
+                        # If we still don't have a dealer (e.g., heads-up dead button),
+                        # use the small blind as the button
+                        if not current_hand.get('dealer') and sb_player:
+                            current_hand['dealer'] = sb_player
+
                     hands.append(current_hand)
                     current_hand = None
 
@@ -135,7 +155,25 @@ class HandParser:
                             'invested': 0
                         }
 
-                elif info['type'] in ['small_blind', 'big_blind', 'call', 'bet', 'raise']:
+                elif info['type'] == 'small_blind':
+                    player = info['player']
+                    amount = info['amount']
+                    # Track small blind player for dead button inference
+                    current_hand['small_blind_player'] = player
+                    if player in current_hand['players']:
+                        current_hand['players'][player]['invested'] = \
+                            current_hand['players'][player].get('invested', 0) + amount
+
+                elif info['type'] == 'big_blind':
+                    player = info['player']
+                    amount = info['amount']
+                    # Track big blind player for dead button inference
+                    current_hand['big_blind_player'] = player
+                    if player in current_hand['players']:
+                        current_hand['players'][player]['invested'] = \
+                            current_hand['players'][player].get('invested', 0) + amount
+
+                elif info['type'] in ['call', 'bet', 'raise']:
                     player = info['player']
                     amount = info['amount']
                     if player in current_hand['players']:
@@ -154,6 +192,14 @@ class HandParser:
                     current_hand['winner'] = info['player']
                     current_hand['pot'] = info['amount']
                     current_hand['winning_hand'] = info.get('winning_hand')
+
+                elif info['type'] == 'uncalled_bet':
+                    # Subtract uncalled bet from player's invested amount
+                    player = info['player']
+                    amount = info['amount']
+                    if player in current_hand['players']:
+                        current_hand['players'][player]['invested'] = \
+                            current_hand['players'][player].get('invested', 0) - amount
 
         return hands
 
